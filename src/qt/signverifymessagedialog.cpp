@@ -4,6 +4,7 @@
 #include "addressbookpage.h"
 #include "base58.h"
 #include "guiutil.h"
+#include "dialogwindowflags.h"
 #include "init.h"
 #include "main.h"
 #include "optionsmodel.h"
@@ -14,9 +15,10 @@
 #include <vector>
 
 #include <QClipboard>
+#include <QKeyEvent>
 
 SignVerifyMessageDialog::SignVerifyMessageDialog(QWidget *parent) :
-    QDialog(parent),
+    QWidget(parent, DIALOGWINDOWHINTS),
     ui(new Ui::SignVerifyMessageDialog),
     model(0)
 {
@@ -24,11 +26,11 @@ SignVerifyMessageDialog::SignVerifyMessageDialog(QWidget *parent) :
 
 #if (QT_VERSION >= 0x040700)
     /* Do not move this to the XML file, Qt before 4.7 will choke on it */
-    ui->addressIn_SM->setPlaceholderText(tr("Enter a Bitcoin address (e.g. 1NS17iag9jJgTHD1VXjvLCEnZuQ3rJDE9L)"));
+    ui->addressIn_SM->setPlaceholderText(tr("Enter a Coino address (e.g. 4Zo1ga6xuKuQ7JV7M9rGDoxdbYwV5zgQJ5)"));
     ui->signatureOut_SM->setPlaceholderText(tr("Click \"Sign Message\" to generate signature"));
 
-    ui->addressIn_VM->setPlaceholderText(tr("Enter a Bitcoin address (e.g. 1NS17iag9jJgTHD1VXjvLCEnZuQ3rJDE9L)"));
-    ui->signatureIn_VM->setPlaceholderText(tr("Enter Bitcoin signature"));
+    ui->addressIn_VM->setPlaceholderText(tr("Enter a Coino address (e.g. 4Zo1ga6xuKuQ7JV7M9rGDoxdbYwV5zgQJ5)"));
+    ui->signatureIn_VM->setPlaceholderText(tr("Enter Coino signature"));
 #endif
 
     GUIUtil::setupAddressWidget(ui->addressIn_SM, this);
@@ -126,7 +128,7 @@ void SignVerifyMessageDialog::on_signMessageButton_SM_clicked()
     if (!ctx.isValid())
     {
         ui->statusLabel_SM->setStyleSheet("QLabel { color: red; }");
-        ui->statusLabel_SM->setText(tr("Wallet unlock was canceled."));
+        ui->statusLabel_SM->setText(tr("Wallet unlock was cancelled."));
         return;
     }
 
@@ -270,5 +272,20 @@ bool SignVerifyMessageDialog::eventFilter(QObject *object, QEvent *event)
             ui->statusLabel_VM->clear();
         }
     }
-    return QDialog::eventFilter(object, event);
+    return QWidget::eventFilter(object, event);
+}
+
+void SignVerifyMessageDialog::keyPressEvent(QKeyEvent *event)
+{
+#ifdef ANDROID
+    if(event->key() == Qt::Key_Back)
+    {
+        close();
+    }
+#else
+    if(event->key() == Qt::Key_Escape)
+    {
+        close();
+    }
+#endif
 }

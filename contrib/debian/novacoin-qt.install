@@ -1,0 +1,5 @@
+Coino-qt usr/bin
+share/pixmaps/Coino32.xpm usr/share/pixmaps
+share/pixmaps/Coino80.xpm usr/share/pixmaps
+debian/Coino-qt.desktop usr/share/applications
+debian/Coino-qt.protocol usr/share/kde4/services/

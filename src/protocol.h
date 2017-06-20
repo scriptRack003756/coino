@@ -1,7 +1,5 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Copyright (c) 2009-2012 The Bitcoin developers
-// Copyright (c) 2011-2012 Litecoin Developers
-// Copyright (c) 2013 Coino Developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -15,12 +13,13 @@
 #include "serialize.h"
 #include "netbase.h"
 #include <string>
+#include <limits>
 #include "uint256.h"
 
 extern bool fTestNet;
 static inline unsigned short GetDefaultPort(const bool testnet = fTestNet)
 {
-    return testnet ? 19117 : 15555;
+    return testnet ? 17778 : 29293;
 }
 
 
@@ -77,7 +76,7 @@ class CAddress : public CService
 {
     public:
         CAddress();
-        explicit CAddress(CService ipIn, uint64 nServicesIn=NODE_NETWORK);
+        explicit CAddress(CService ipIn, uint64_t nServicesIn=NODE_NETWORK);
 
         void Init();
 
@@ -100,13 +99,13 @@ class CAddress : public CService
 
     // TODO: make private (improves encapsulation)
     public:
-        uint64 nServices;
+        uint64_t nServices;
 
         // disk and network only
         unsigned int nTime;
 
         // memory only
-        int64 nLastTry;
+        int64_t nLastTry;
 };
 
 /** inv message data */

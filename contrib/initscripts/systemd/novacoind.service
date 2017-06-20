@@ -1,0 +1,11 @@
+[Unit]
+Description=Coino daemon serivce
+After=network.target
+
+[Service]
+Type=simple
+User=Coino
+ExecStart=/opt/Coino/Coinod
+
+[Install]
+WantedBy=multi-user.target

@@ -1,6 +1,4 @@
 // Copyright (c) 2009-2012 The Bitcoin Developers
-// Copyright (c) 2011-2012 Litecoin Developers
-// Copyright (c) 2013 Coino Developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -8,32 +6,29 @@
 #include <openssl/evp.h>
 #include <vector>
 #include <string>
+
+#include "crypter.h"
+
 #ifdef WIN32
 #include <windows.h>
 #endif
-
-#include "crypter.h"
 
 bool CCrypter::SetKeyFromPassphrase(const SecureString& strKeyData, const std::vector<unsigned char>& chSalt, const unsigned int nRounds, const unsigned int nDerivationMethod)
 {
     if (nRounds < 1 || chSalt.size() != WALLET_CRYPTO_SALT_SIZE)
         return false;
 
-    // Try to keep the keydata out of swap (and be a bit over-careful to keep the IV that we don't even use out of swap)
-    // Note that this does nothing about suspend-to-disk (which will put all our key data on disk)
-    // Note as well that at no point in this program is any attempt made to prevent stealing of keys by reading the memory of the running process.  
-    mlock(&chKey[0], sizeof chKey);
-    mlock(&chIV[0], sizeof chIV);
-
     int i = 0;
     if (nDerivationMethod == 0)
+    {
         i = EVP_BytesToKey(EVP_aes_256_cbc(), EVP_sha512(), &chSalt[0],
                           (unsigned char *)&strKeyData[0], strKeyData.size(), nRounds, chKey, chIV);
+    }
 
     if (i != (int)WALLET_CRYPTO_KEY_SIZE)
     {
-        memset(&chKey, 0, sizeof chKey);
-        memset(&chIV, 0, sizeof chIV);
+        OPENSSL_cleanse(&chKey, sizeof chKey);
+        OPENSSL_cleanse(&chIV, sizeof chIV);
         return false;
     }
 
@@ -45,12 +40,6 @@ bool CCrypter::SetKey(const CKeyingMaterial& chNewKey, const std::vector<unsigne
 {
     if (chNewKey.size() != WALLET_CRYPTO_KEY_SIZE || chNewIV.size() != WALLET_CRYPTO_KEY_SIZE)
         return false;
-
-    // Try to keep the keydata out of swap
-    // Note that this does nothing about suspend-to-disk (which will put all our key data on disk)
-    // Note as well that at no point in this program is any attempt made to prevent stealing of keys by reading the memory of the running process.  
-    mlock(&chKey[0], sizeof chKey);
-    mlock(&chIV[0], sizeof chIV);
 
     memcpy(&chKey[0], &chNewKey[0], sizeof chKey);
     memcpy(&chIV[0], &chNewIV[0], sizeof chIV);
@@ -75,9 +64,9 @@ bool CCrypter::Encrypt(const CKeyingMaterial& vchPlaintext, std::vector<unsigned
     bool fOk = true;
 
     EVP_CIPHER_CTX_init(&ctx);
-    if (fOk) fOk = EVP_EncryptInit_ex(&ctx, EVP_aes_256_cbc(), NULL, chKey, chIV);
-    if (fOk) fOk = EVP_EncryptUpdate(&ctx, &vchCiphertext[0], &nCLen, &vchPlaintext[0], nLen);
-    if (fOk) fOk = EVP_EncryptFinal_ex(&ctx, (&vchCiphertext[0])+nCLen, &nFLen);
+    if (fOk) fOk = EVP_EncryptInit_ex(&ctx, EVP_aes_256_cbc(), NULL, chKey, chIV) != 0;
+    if (fOk) fOk = EVP_EncryptUpdate(&ctx, &vchCiphertext[0], &nCLen, &vchPlaintext[0], nLen) != 0;
+    if (fOk) fOk = EVP_EncryptFinal_ex(&ctx, (&vchCiphertext[0]) + nCLen, &nFLen) != 0;
     EVP_CIPHER_CTX_cleanup(&ctx);
 
     if (!fOk) return false;
@@ -102,9 +91,9 @@ bool CCrypter::Decrypt(const std::vector<unsigned char>& vchCiphertext, CKeyingM
     bool fOk = true;
 
     EVP_CIPHER_CTX_init(&ctx);
-    if (fOk) fOk = EVP_DecryptInit_ex(&ctx, EVP_aes_256_cbc(), NULL, chKey, chIV);
-    if (fOk) fOk = EVP_DecryptUpdate(&ctx, &vchPlaintext[0], &nPLen, &vchCiphertext[0], nLen);
-    if (fOk) fOk = EVP_DecryptFinal_ex(&ctx, (&vchPlaintext[0])+nPLen, &nFLen);
+    if (fOk) fOk = EVP_DecryptInit_ex(&ctx, EVP_aes_256_cbc(), NULL, chKey, chIV) != 0;
+    if (fOk) fOk = EVP_DecryptUpdate(&ctx, &vchPlaintext[0], &nPLen, &vchCiphertext[0], nLen) != 0;
+    if (fOk) fOk = EVP_DecryptFinal_ex(&ctx, (&vchPlaintext[0]) + nPLen, &nFLen) != 0;
     EVP_CIPHER_CTX_cleanup(&ctx);
 
     if (!fOk) return false;

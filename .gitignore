@@ -1,7 +1,5 @@
 src/*.exe
-src/Coino
 src/Coinod
-src/test_Coino
 src/build.h
 .*.swp
 *.*~*
@@ -10,7 +8,7 @@ src/build.h
 *.orig
 *.o
 *.patch
-.bitcoin
+.Coino
 #compilation and Qt preprocessor part
 *.qm
 Makefile
@@ -22,3 +20,5 @@ qrc_*.cpp
 #mac specific
 .DS_Store
 build
+
+!src/leveldb/Makefile

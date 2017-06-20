@@ -1,0 +1,2 @@
+debian/bin/Coinod usr/bin
+src/Coinod usr/lib/Coino

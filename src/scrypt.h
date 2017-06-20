@@ -1,17 +1,12 @@
 #ifndef SCRYPT_H
 #define SCRYPT_H
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include <stdint.h>
+#include <openssl/evp.h>
+#include "uint256.h"
 
-const int SCRYPT_SCRATCHPAD_SIZE = 131072 + 63;
+#define SCRYPT_BUFFER_SIZE (131072 + 63)
 
-void scrypt_1024_1_1_256_sp(const char *input, char *output, char *scratchpad);
-void scrypt_1024_1_1_256(const char *input, char *output);
+uint256 scrypt_blockhash(const uint8_t* input);
 
-#ifdef __cplusplus
-}
-#endif
-
-#endif
+#endif // SCRYPT_H

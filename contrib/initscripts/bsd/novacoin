@@ -1,0 +1,68 @@
+#!/bin/sh
+
+# PROVIDE: Coino
+# REQUIRE: LOGIN
+# KEYWORD: shutdown
+
+#
+# Add the following lines to /etc/rc.conf.local or /etc/rc.conf
+# to enable this service:
+#
+# Coino_enable (bool): Set to NO by default. Set this variable to YES if you want to enable Coino service.
+# Coino_config (path): Set to /usr/local/etc/Coino.conf by default.
+# Coino_user:  The user account Coino daemon runs as. It uses 'root' user by default.
+# Coino_group: The group account Coino daemon runs as. It uses 'wheel' group by default.
+# Coino_datadir (str): Default to "/var/db/Coino". Base data directory.
+
+. /etc/rc.subr
+
+name=Coino
+rcvar=Coino_enable
+
+: ${Coino_enable:=NO}
+: ${Coino_config=/usr/local/etc/Coino.conf}
+: ${Coino_datadir=/var/db/Coino}
+: ${Coino_user="root"}
+: ${Coino_group="wheel"}
+
+required_files=${Coino_config}
+command=/usr/local/bin/Coinod
+Coino_chdir=${Coino_datadir}
+pidfile="${Coino_datadir}/Coinod.pid"
+stop_cmd=Coino_stop
+command_args="-conf=${Coino_config} -datadir=${Coino_datadir} -daemon -pid=${pidfile}"
+start_precmd="${name}_prestart"
+
+Coino_create_datadir()
+{
+	echo "Creating data directory"
+	eval mkdir -p ${Coino_datadir}
+	[ $? -eq 0 ] && chown -R ${Coino_user}:${Coino_group} ${Coino_datadir}
+}
+
+Coino_prestart()
+{
+	if [ ! -d "${Coino_datadir}/." ]; then
+		Coino_create_datadir || return 1
+	fi
+}
+
+Coino_requirepidfile()
+{
+	if [ ! "0`check_pidfile ${pidfile} ${command}`" -gt 1 ]; then
+		echo "${name} not running? (check $pidfile)."
+		exit 1
+	fi
+}
+
+Coino_stop()
+{
+    Coino_requirepidfile
+
+	echo "Stopping ${name}."
+	eval ${command} -conf=${Coino_config} -datadir=${Coino_datadir} stop
+	wait_for_pids ${rc_pid}
+}
+
+load_rc_config $name
+run_rc_command "$1"

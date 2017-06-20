@@ -17,13 +17,13 @@ SendCoinsEntry::SendCoinsEntry(QWidget *parent) :
 {
     ui->setupUi(this);
 
-#ifdef Q_WS_MAC
+#ifdef Q_OS_MAC
     ui->payToLayout->setSpacing(4);
 #endif
 #if QT_VERSION >= 0x040700
     /* Do not move this to the XML file, Qt before 4.7 will choke on it */
     ui->addAsLabel->setPlaceholderText(tr("Enter a label for this address to add it to your address book"));
-    ui->payTo->setPlaceholderText(tr("Enter a Coino address (e.g. Ubr4H5AEfcYhBmJXcFP2Pk1NpRoEiK7km2)"));
+    ui->payTo->setPlaceholderText(tr("Enter a Coino address (e.g. 4Zo1ga6xuKuQ7JV7M9rGDoxdbYwV5zgQJ5)"));
 #endif
     setFocusPolicy(Qt::TabFocus);
     setFocusProxy(ui->payTo);
@@ -59,10 +59,8 @@ void SendCoinsEntry::on_payTo_textChanged(const QString &address)
 {
     if(!model)
         return;
-    // Fill in label from address book, if address has an associated label
-    QString associatedLabel = model->getAddressTableModel()->labelForAddress(address);
-    if(!associatedLabel.isEmpty())
-        ui->addAsLabel->setText(associatedLabel);
+    // Fill in label from address book
+    ui->addAsLabel->setText(model->getAddressTableModel()->labelForAddress(address));
 }
 
 void SendCoinsEntry::setModel(WalletModel *model)
@@ -71,6 +69,8 @@ void SendCoinsEntry::setModel(WalletModel *model)
 
     if(model && model->getOptionsModel())
         connect(model->getOptionsModel(), SIGNAL(displayUnitChanged(int)), this, SLOT(updateDisplayUnit()));
+
+    connect(ui->payAmount, SIGNAL(textChanged()), this, SIGNAL(payAmountChanged()));
 
     clear();
 }

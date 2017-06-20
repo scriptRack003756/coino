@@ -1,7 +1,5 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Copyright (c) 2009-2012 The Bitcoin developers
-// Copyright (c) 2011-2012 Litecoin Developers
-// Copyright (c) 2013 Coino Developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -25,7 +23,7 @@ CMessageHeader::CMessageHeader()
     memcpy(pchMessageStart, ::pchMessageStart, sizeof(pchMessageStart));
     memset(pchCommand, 0, sizeof(pchCommand));
     pchCommand[1] = 1;
-    nMessageSize = -1;
+    nMessageSize = std::numeric_limits<uint32_t>::max();
     nChecksum = 0;
 }
 
@@ -82,7 +80,7 @@ CAddress::CAddress() : CService()
     Init();
 }
 
-CAddress::CAddress(CService ipIn, uint64 nServicesIn) : CService(ipIn)
+CAddress::CAddress(CService ipIn, uint64_t nServicesIn) : CService(ipIn)
 {
     Init();
     nServices = nServicesIn;

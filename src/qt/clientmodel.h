@@ -3,6 +3,8 @@
 
 #include <QObject>
 
+#include <stdint.h>
+
 class OptionsModel;
 class AddressTableModel;
 class TransactionTableModel;
@@ -13,6 +15,13 @@ class QDateTime;
 class QTimer;
 QT_END_NAMESPACE
 
+enum NumConnections {
+    CONNECTIONS_NONE = 0,
+    CONNECTIONS_IN = (1U << 0),
+    CONNECTIONS_OUT = (1U << 1),
+    CONNECTIONS_ALL = (CONNECTIONS_IN | CONNECTIONS_OUT),
+};
+
 /** Model for Bitcoin network client. */
 class ClientModel : public QObject
 {
@@ -21,36 +30,18 @@ public:
     explicit ClientModel(OptionsModel *optionsModel, QObject *parent = 0);
     ~ClientModel();
 
-    enum MiningType
-    {
-        SoloMining,
-        PoolMining
-    };
-
     OptionsModel *getOptionsModel();
 
-    int getNumConnections() const;
+    double getPoSKernelPS();
+    double getDifficulty(bool fProofofStake);
+
+    //! Return number of connections, default is in- and outbound (total)
+    int getNumConnections(uint8_t flags = CONNECTIONS_ALL) const;
     int getNumBlocks() const;
     int getNumBlocksAtStartup();
-    MiningType getMiningType() const;
-    int getMiningThreads() const;
-    bool getMiningStarted() const;
 
-    bool getMiningDebug() const;
-    void setMiningDebug(bool debug);
-    int getMiningScanTime() const;
-    void setMiningScanTime(int scantime);
-    QString getMiningServer() const;
-    void setMiningServer(QString server);
-    QString getMiningPort() const;
-    void setMiningPort(QString port);
-    QString getMiningUsername() const;
-    void setMiningUsername(QString username);
-    QString getMiningPassword() const;
-    void setMiningPassword(QString password);
-
-    int getHashrate() const;
-    double GetDifficulty() const;
+    quint64 getTotalBytesRecv() const;
+    quint64 getTotalBytesSent() const;
 
     QDateTime getLastBlockDate() const;
 
@@ -63,8 +54,6 @@ public:
     //! Return warnings to be displayed in status bar
     QString getStatusBarWarnings() const;
 
-    void setMining(MiningType type, bool mining, int threads, int hashrate);
-
     QString formatFullVersion() const;
     QString formatBuildDate() const;
     QString clientName() const;
@@ -75,17 +64,6 @@ private:
 
     int cachedNumBlocks;
     int cachedNumBlocksOfPeers;
-    int cachedHashrate;
-
-    MiningType miningType;
-    int miningThreads;
-    bool miningStarted;
-    bool miningDebug;
-    int miningScanTime;
-    QString miningServer;
-    QString miningPort;
-    QString miningUsername;
-    QString miningPassword;
 
     int numBlocksAtStartup;
 
@@ -96,7 +74,7 @@ private:
 signals:
     void numConnectionsChanged(int count);
     void numBlocksChanged(int count, int countOfPeers);
-    void miningChanged(bool mining, int count);
+    void bytesChanged(quint64 totalBytesIn, quint64 totalBytesOut);
 
     //! Asynchronous error notification
     void error(const QString &title, const QString &message, bool modal);

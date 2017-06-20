@@ -4,6 +4,7 @@
 #include "clientmodel.h"
 #include "bitcoinrpc.h"
 #include "guiutil.h"
+#include "dialogwindowflags.h"
 
 #include <QTime>
 #include <QTimer>
@@ -13,16 +14,17 @@
 #include <QUrl>
 #include <QScrollBar>
 
-#include <boost/tokenizer.hpp>
 #include <openssl/crypto.h>
+#include <db_cxx.h>
 
 // TODO: make it possible to filter out categories (esp debug messages when implemented)
 // TODO: receive errors and debug messages through ClientModel
 
-const int CONSOLE_SCROLLBACK = 50;
 const int CONSOLE_HISTORY = 50;
 
 const QSize ICON_SIZE(24, 24);
+
+const int INITIAL_TRAFFIC_GRAPH_MINS = 30;
 
 const struct {
     const char *url;
@@ -54,34 +56,108 @@ void RPCExecutor::start()
    // Nothing to do
 }
 
-void RPCExecutor::request(const QString &command)
+/**
+ * Split shell command line into a list of arguments. Aims to emulate \c bash and friends.
+ *
+ * - Arguments are delimited with whitespace
+ * - Extra whitespace at the beginning and end and between arguments will be ignored
+ * - Text can be "double" or 'single' quoted
+ * - The backslash \c \ is used as escape character
+ *   - Outside quotes, any character can be escaped
+ *   - Within double quotes, only escape \c " and backslashes before a \c " or another backslash
+ *   - Within single quotes, no escaping is possible and no special interpretation takes place
+ *
+ * @param[out]   args        Parsed arguments will be appended to this list
+ * @param[in]    strCommand  Command line to split
+ */
+bool parseCommandLine(std::vector<std::string> &args, const std::string &strCommand)
 {
-    // Parse shell-like command line into separate arguments
-    std::string strMethod;
-    std::vector<std::string> strParams;
-    try {
-        boost::escaped_list_separator<char> els('\\',' ','\"');
-        std::string strCommand = command.toStdString();
-        boost::tokenizer<boost::escaped_list_separator<char> > tok(strCommand, els);
-
-        int n = 0;
-        for(boost::tokenizer<boost::escaped_list_separator<char> >::iterator beg=tok.begin(); beg!=tok.end();++beg,++n)
+    enum CmdParseState
+    {
+        STATE_EATING_SPACES,
+        STATE_ARGUMENT,
+        STATE_SINGLEQUOTED,
+        STATE_DOUBLEQUOTED,
+        STATE_ESCAPE_OUTER,
+        STATE_ESCAPE_DOUBLEQUOTED
+    } state = STATE_EATING_SPACES;
+    std::string curarg;
+    foreach(char ch, strCommand)
+    {
+        switch(state)
         {
-            if(n == 0) // First parameter is the command
-                strMethod = *beg;
-            else
-                strParams.push_back(*beg);
+        case STATE_ARGUMENT: // In or after argument
+        case STATE_EATING_SPACES: // Handle runs of whitespace
+            switch(ch)
+            {
+            case '"': state = STATE_DOUBLEQUOTED; break;
+            case '\'': state = STATE_SINGLEQUOTED; break;
+            case '\\': state = STATE_ESCAPE_OUTER; break;
+            case ' ': case '\n': case '\t':
+                if(state == STATE_ARGUMENT) // Space ends argument
+                {
+                    args.push_back(curarg);
+                    curarg.clear();
+                }
+                state = STATE_EATING_SPACES;
+                break;
+            default: curarg += ch; state = STATE_ARGUMENT;
+            }
+            break;
+        case STATE_SINGLEQUOTED: // Single-quoted string
+            switch(ch)
+            {
+            case '\'': state = STATE_ARGUMENT; break;
+            default: curarg += ch;
+            }
+            break;
+        case STATE_DOUBLEQUOTED: // Double-quoted string
+            switch(ch)
+            {
+            case '"': state = STATE_ARGUMENT; break;
+            case '\\': state = STATE_ESCAPE_DOUBLEQUOTED; break;
+            default: curarg += ch;
+            }
+            break;
+        case STATE_ESCAPE_OUTER: // '\' outside quotes
+            curarg += ch; state = STATE_ARGUMENT;
+            break;
+        case STATE_ESCAPE_DOUBLEQUOTED: // '\' in double-quoted text
+            if(ch != '"' && ch != '\\') curarg += '\\'; // keep '\' for everything but the quote and '\' itself
+            curarg += ch; state = STATE_DOUBLEQUOTED;
+            break;
         }
     }
-    catch(boost::escaped_list_error &e)
+    switch(state) // final state
     {
-        emit reply(RPCConsole::CMD_ERROR, QString("Parse error"));
+    case STATE_EATING_SPACES:
+        return true;
+    case STATE_ARGUMENT:
+        args.push_back(curarg);
+        return true;
+    default: // ERROR to end in one of the other states
+        return false;
+    }
+}
+
+void RPCExecutor::request(const QString &command)
+{
+    std::vector<std::string> args;
+    if(!parseCommandLine(args, command.toStdString()))
+    {
+        emit reply(RPCConsole::CMD_ERROR, QString("Parse error: unbalanced ' or \""));
         return;
     }
-
-    try {
+    if(args.empty())
+        return; // Nothing to do
+    try
+    {
         std::string strPrint;
-        json_spirit::Value result = tableRPC.execute(strMethod, RPCConvertValues(strMethod, strParams));
+        // Convert argument list to JSON objects in method-dependent way,
+        // and pass it along with the method name to the dispatcher.
+        json_spirit::Value result = tableRPC.execute(
+            args[0],
+            RPCConvertValues(args[0], std::vector<std::string>(args.begin() + 1, args.end())));
 
         // Format result reply
         if (result.type() == json_spirit::null_type)
@@ -95,7 +171,16 @@ void RPCExecutor::request(const QString &command)
     }
     catch (json_spirit::Object& objError)
     {
-        emit reply(RPCConsole::CMD_ERROR, QString::fromStdString(write_string(json_spirit::Value(objError), false)));
+        try // Nice formatting for standard-format error
+        {
+            int code = find_value(objError, "code").get_int();
+            std::string message = find_value(objError, "message").get_str();
+            emit reply(RPCConsole::CMD_ERROR, QString::fromStdString(message) + " (code " + QString::number(code) + ")");
+        }
+        catch(std::runtime_error &) // raised when converting to invalid type, i.e. missing code or message
+        {   // Show raw JSON object
+            emit reply(RPCConsole::CMD_ERROR, QString::fromStdString(write_string(json_spirit::Value(objError), false)));
+        }
     }
     catch (std::exception& e)
     {
@@ -104,26 +189,31 @@ void RPCExecutor::request(const QString &command)
 }
 
 RPCConsole::RPCConsole(QWidget *parent) :
-    QDialog(parent),
+    QWidget(parent),
     ui(new Ui::RPCConsole),
     historyPtr(0)
 {
     ui->setupUi(this);
 
-#ifndef Q_WS_MAC
+#ifndef Q_OS_MAC
     ui->openDebugLogfileButton->setIcon(QIcon(":/icons/export"));
+    ui->openConfigurationfileButton->setIcon(QIcon(":/icons/export"));
     ui->showCLOptionsButton->setIcon(QIcon(":/icons/options"));
 #endif
 
     // Install event filter for up and down arrow
     ui->lineEdit->installEventFilter(this);
+    ui->messagesWidget->installEventFilter(this);
 
     connect(ui->clearButton, SIGNAL(clicked()), this, SLOT(clear()));
+    connect(ui->btnClearTrafficGraph, SIGNAL(clicked()), ui->trafficGraph, SLOT(clear()));
 
-    // set OpenSSL version label
+    // set library version labels
     ui->openSSLVersion->setText(SSLeay_version(SSLEAY_VERSION));
+    ui->berkeleyDBVersion->setText(DbEnv::version(0, 0, 0));
 
     startExecutor();
+    setTrafficGraphRange(INITIAL_TRAFFIC_GRAPH_MINS);
 
     clear();
 }
@@ -136,33 +226,56 @@ RPCConsole::~RPCConsole()
 
 bool RPCConsole::eventFilter(QObject* obj, QEvent *event)
 {
-    if(obj == ui->lineEdit)
+    if(event->type() == QEvent::KeyPress) // Special key handling
     {
-        if(event->type() == QEvent::KeyPress)
+        QKeyEvent *keyevt = static_cast<QKeyEvent*>(event);
+        int key = keyevt->key();
+        Qt::KeyboardModifiers mod = keyevt->modifiers();
+        switch(key)
         {
-            QKeyEvent *key = static_cast<QKeyEvent*>(event);
-            switch(key->key())
+        case Qt::Key_Up: if(obj == ui->lineEdit) { browseHistory(-1); return true; } break;
+        case Qt::Key_Down: if(obj == ui->lineEdit) { browseHistory(1); return true; } break;
+        case Qt::Key_PageUp: /* pass paging keys to messages widget */
+        case Qt::Key_PageDown:
+            if(obj == ui->lineEdit)
             {
-            case Qt::Key_Up: browseHistory(-1); return true;
-            case Qt::Key_Down: browseHistory(1); return true;
+                QApplication::postEvent(ui->messagesWidget, new QKeyEvent(*keyevt));
+                return true;
+            }
+            break;
+        default:
+            // Typing in messages widget brings focus to line edit, and redirects key there
+            // Exclude most combinations and keys that emit no text, except paste shortcuts
+            if(obj == ui->messagesWidget && (
+                  (!mod && !keyevt->text().isEmpty() && key != Qt::Key_Tab) ||
+                  ((mod & Qt::ControlModifier) && key == Qt::Key_V) ||
+                  ((mod & Qt::ShiftModifier) && key == Qt::Key_Insert)))
+            {
+                ui->lineEdit->setFocus();
+                QApplication::postEvent(ui->lineEdit, new QKeyEvent(*keyevt));
+                return true;
             }
         }
     }
-    return QDialog::eventFilter(obj, event);
+    return QWidget::eventFilter(obj, event);
 }
 
 void RPCConsole::setClientModel(ClientModel *model)
 {
     this->clientModel = model;
+    ui->trafficGraph->setClientModel(model);
     if(model)
     {
         // Subscribe to information, replies, messages, errors
         connect(model, SIGNAL(numConnectionsChanged(int)), this, SLOT(setNumConnections(int)));
         connect(model, SIGNAL(numBlocksChanged(int,int)), this, SLOT(setNumBlocks(int,int)));
 
+        updateTrafficStats(model->getTotalBytesRecv(), model->getTotalBytesSent());
+        connect(model, SIGNAL(bytesChanged(quint64,quint64)), this, SLOT(updateTrafficStats(quint64, quint64)));
         // Provide initial values
         ui->clientVersion->setText(model->formatFullVersion());
         ui->clientName->setText(model->clientName());
+        ui->buildDate->setText(model->formatBuildDate());
         ui->startupTime->setText(model->formatClientStartupTime());
 
         setNumConnections(model->getNumConnections());
@@ -203,7 +316,7 @@ void RPCConsole::clear()
     ui->messagesWidget->document()->setDefaultStyleSheet(
                 "table { }"
                 "td.time { color: #808080; padding-top: 3px; } "
-                "td.message { font-family: Monospace; font-size: 12px; } "
+                "td.message { font-family: Monospace; } "
                 "td.cmd-request { color: #006060; } "
                 "td.cmd-error { color: red; } "
                 "b { color: #006060; } "
@@ -232,7 +345,14 @@ void RPCConsole::message(int category, const QString &message, bool html)
 
 void RPCConsole::setNumConnections(int count)
 {
-    ui->numberOfConnections->setText(QString::number(count));
+    if (!clientModel)
+        return;
+
+    QString connections = QString::number(count) + " (";
+    connections += tr("Inbound:") + " " + QString::number(clientModel->getNumConnections(CONNECTIONS_IN)) + " / ";
+    connections += tr("Outbound:") + " " + QString::number(clientModel->getNumConnections(CONNECTIONS_OUT)) + ")";
+
+    ui->numberOfConnections->setText(connections);
 }
 
 void RPCConsole::setNumBlocks(int count, int countOfPeers)
@@ -256,8 +376,8 @@ void RPCConsole::on_lineEdit_returnPressed()
     {
         message(CMD_REQUEST, cmd);
         emit cmdRequest(cmd);
-        // Truncate history from current position
-        history.erase(history.begin() + historyPtr, history.end());
+        // Remove command, if already in history
+        history.removeOne(cmd);
         // Append command to history
         history.append(cmd);
         // Enforce maximum history size
@@ -321,6 +441,11 @@ void RPCConsole::on_openDebugLogfileButton_clicked()
     GUIUtil::openDebugLogfile();
 }
 
+void RPCConsole::on_openConfigurationfileButton_clicked()
+{
+    GUIUtil::openConfigfile();
+}
+
 void RPCConsole::scrollToEnd()
 {
     QScrollBar *scrollbar = ui->messagesWidget->verticalScrollBar();
@@ -331,4 +456,70 @@ void RPCConsole::on_showCLOptionsButton_clicked()
 {
     GUIUtil::HelpMessageBox help;
     help.exec();
+}
+void RPCConsole::on_sldGraphRange_valueChanged(int value)
+{
+    const int multiplier = 5; // each position on the slider represents 5 min
+    int mins = value * multiplier;
+    setTrafficGraphRange(mins);
+}
+
+QString RPCConsole::FormatBytes(quint64 bytes)
+{
+    if(bytes < 1024)
+        return QString(tr("%1 B")).arg(bytes);
+    if(bytes < 1024 * 1024)
+        return QString(tr("%1 KB")).arg(bytes / 1024);
+    if(bytes < 1024 * 1024 * 1024)
+        return QString(tr("%1 MB")).arg(bytes / 1024 / 1024);
+
+    return QString(tr("%1 GB")).arg(bytes / 1024 / 1024 / 1024);
+}
+
+void RPCConsole::setTrafficGraphRange(int mins)
+{
+    ui->trafficGraph->setGraphRangeMins(mins);
+    ui->lblGraphRange->setText(GUIUtil::formatDurationStr(mins * 60));
+}
+
+void RPCConsole::updateTrafficStats(quint64 totalBytesIn, quint64 totalBytesOut)
+{
+    ui->lblBytesIn->setText(FormatBytes(totalBytesIn));
+    ui->lblBytesOut->setText(FormatBytes(totalBytesOut));
+}
+
+void RPCConsole::resizeEvent(QResizeEvent *event)
+{
+    QWidget::resizeEvent(event);
+}
+
+void RPCConsole::showEvent(QShowEvent *event)
+{
+    QWidget::showEvent(event);
+
+    if (!clientModel)
+        return;
+}
+
+void RPCConsole::hideEvent(QHideEvent *event)
+{
+    QWidget::hideEvent(event);
+
+    if (!clientModel)
+        return;
+}
+
+void RPCConsole::keyPressEvent(QKeyEvent *event)
+{
+#ifdef ANDROID
+    if(windowType() != Qt::Widget && event->key() == Qt::Key_Back)
+    {
+        close();
+    }
+#else
+    if(windowType() != Qt::Widget && event->key() == Qt::Key_Escape)
+    {
+        close();
+    }
+#endif
 }

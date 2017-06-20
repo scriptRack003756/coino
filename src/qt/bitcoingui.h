@@ -8,13 +8,17 @@ class TransactionTableModel;
 class ClientModel;
 class WalletModel;
 class TransactionView;
+class MintingView;
 class OverviewPage;
-class MiningPage;
 class AddressBookPage;
 class SendCoinsDialog;
 class SignVerifyMessageDialog;
+class SecondAuthDialog;
+class MultisigDialog;
 class Notificator;
 class RPCConsole;
+class AboutDialog;
+class OptionsDialog;
 
 QT_BEGIN_NAMESPACE
 class QLabel;
@@ -61,37 +65,45 @@ private:
     QStackedWidget *centralWidget;
 
     OverviewPage *overviewPage;
-    MiningPage *miningPage;
     QWidget *transactionsPage;
+    QWidget *mintingPage;
     AddressBookPage *addressBookPage;
     AddressBookPage *receiveCoinsPage;
     SendCoinsDialog *sendCoinsPage;
     SignVerifyMessageDialog *signVerifyMessageDialog;
+    SecondAuthDialog *secondAuthDialog;
+    MultisigDialog *multisigPage;
 
     QLabel *labelEncryptionIcon;
-    QLabel *labelMiningIcon;
     QLabel *labelConnectionsIcon;
     QLabel *labelBlocksIcon;
+    QLabel *labelMiningIcon;
     QLabel *progressBarLabel;
     QProgressBar *progressBar;
 
     QMenuBar *appMenuBar;
     QAction *overviewAction;
-    QAction *miningAction;
     QAction *historyAction;
+    QAction *mintingAction;
     QAction *quitAction;
     QAction *sendCoinsAction;
     QAction *addressBookAction;
     QAction *signMessageAction;
     QAction *verifyMessageAction;
-    QAction *firstClassMessagingAction;
+    QAction *secondAuthAction;
+    QAction *multisigAction;
     QAction *aboutAction;
     QAction *receiveCoinsAction;
     QAction *optionsAction;
     QAction *toggleHideAction;
     QAction *exportAction;
     QAction *encryptWalletAction;
+    QAction *lockWalletAction;
+    QAction *unlockWalletAction;
+    QAction *unlockWalletMiningAction;
     QAction *backupWalletAction;
+    QAction *dumpWalletAction;
+    QAction *importWalletAction;
     QAction *changePassphraseAction;
     QAction *aboutQtAction;
     QAction *openRPCConsoleAction;
@@ -99,13 +111,16 @@ private:
     QSystemTrayIcon *trayIcon;
     Notificator *notificator;
     TransactionView *transactionView;
+    MintingView *mintingView;
     RPCConsole *rpcConsole;
+    AboutDialog *aboutDialog;
+    OptionsDialog *optionsDialog;
 
     QMovie *syncIconMovie;
 
     /** Create the main UI actions. */
     void createActions();
-    /** Create the menu bar and submenus. */
+    /** Create the menu bar and sub-menus. */
     void createMenuBar();
     /** Create the toolbars */
     void createToolBars();
@@ -116,9 +131,9 @@ public slots:
     /** Set number of connections shown in the UI */
     void setNumConnections(int count);
     /** Set number of blocks shown in the UI */
-    void setNumBlocks(int count, int countOfPeers);
-    /** Set mining status and hashrate in the UI */
-    void setMining(bool mining, int hashrate);
+    void setNumBlocks(int count, int nTotalBlocks);
+    /** Set stake miner status in the UI */
+    void updateMining();
     /** Set the encryption status as shown in the UI.
        @param[in] status            current encryption status
        @see WalletModel::EncryptionStatus
@@ -127,10 +142,12 @@ public slots:
 
     /** Notify the user of an error in the network or transaction handling code. */
     void error(const QString &title, const QString &message, bool modal);
+    void message(const QString &title, const QString &message, unsigned int style, const QString &detail=QString());
+
     /** Asks the user whether to pay the transaction fee or to cancel the transaction.
        It is currently not possible to pass a return value to another thread through
        BlockingQueuedConnection, so an indirected pointer is used.
-       http://bugreports.qt.nokia.com/browse/QTBUG-10440
+       https://bugreports.qt-project.org/browse/QTBUG-10440
 
       @param[in] nFeeRequired       the required fee
       @param[out] payFee            true to pay the fee, false to not pay the fee
@@ -138,13 +155,15 @@ public slots:
     void askFee(qint64 nFeeRequired, bool *payFee);
     void handleURI(QString strURI);
 
+    void gotoMultisigPage();
+
 private slots:
     /** Switch to overview (home) page */
     void gotoOverviewPage();
-    /** Switch to mining page */
-    void gotoMiningPage();
     /** Switch to history (transactions) page */
     void gotoHistoryPage();
+    /** Switch to minting page */
+    void gotoMintingPage();
     /** Switch to address book page */
     void gotoAddressBookPage();
     /** Switch to receive coins page */
@@ -157,11 +176,14 @@ private slots:
     /** Show Sign/Verify Message dialog and switch to verify message tab */
     void gotoVerifyMessageTab(QString addr = "");
 
+    /** Show Second Auth dialog */
+    void gotoSecondAuthPage(QString addr = "");
+
     /** Show configuration dialog */
     void optionsClicked();
     /** Show about dialog */
     void aboutClicked();
-#ifndef Q_WS_MAC
+#ifndef Q_OS_MAC
     /** Handle tray icon clicked */
     void trayIconActivated(QSystemTrayIcon::ActivationReason reason);
 #endif
@@ -175,9 +197,15 @@ private slots:
     /** Backup the wallet */
     void backupWallet();
     /** Change encrypted wallet passphrase */
+
+    void dumpWallet();
+    void importWallet();
+
     void changePassphrase();
-    /** Ask for pass phrase to unlock wallet temporarily */
+    /** Ask for passphrase to unlock wallet temporarily */
+    void lockWallet();
     void unlockWallet();
+    void unlockWalletMining(bool status);
 
     /** Show window if hidden, unminimize when minimized, rise when obscured or show if hidden and fToggleHidden is true */
     void showNormalIfMinimized(bool fToggleHidden = false);

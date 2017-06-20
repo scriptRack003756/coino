@@ -1,7 +1,5 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Copyright (c) 2009-2012 The Bitcoin developers
-// Copyright (c) 2011-2012 Litecoin Developers
-// Copyright (c) 2013 Coino Developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 #ifndef BITCOIN_DB_H
@@ -30,14 +28,17 @@ extern unsigned int nWalletDBUpdated;
 
 void ThreadFlushWalletDB(void* parg);
 bool BackupWallet(const CWallet& wallet, const std::string& strDest);
-
+bool DumpWallet(CWallet* pwallet, const std::string& strDest);
+bool ImportWallet(CWallet* pwallet, const std::string& strLocation);
 
 class CDBEnv
 {
 private:
     bool fDetachDB;
     bool fDbEnvInit;
+    bool fMockDb;
     boost::filesystem::path pathEnv;
+    std::string strPath;
 
     void EnvShutdown();
 
@@ -49,6 +50,27 @@ public:
 
     CDBEnv();
     ~CDBEnv();
+    void MakeMock();
+    bool IsMock() { return fMockDb; };
+
+    /*
+     * Verify that database file strFile is OK. If it is not,
+     * call the callback to try to recover.
+     * This must be called BEFORE strFile is opened.
+     * Returns true if strFile is OK.
+     */
+    enum VerifyResult { VERIFY_OK, RECOVER_OK, RECOVER_FAIL };
+    VerifyResult Verify(std::string strFile, bool (*recoverFunc)(CDBEnv& dbenv, std::string strFile));
+    /*
+     * Salvage data from a file that Verify says is bad.
+     * fAggressive sets the DB_AGGRESSIVE flag (see berkeley DB->verify() method documentation).
+     * Appends binary key/value pairs to vResult, returns true if successful.
+     * NOTE: reads the entire database into memory, so cannot be used
+     * for huge databases.
+     */
+    typedef std::pair<std::vector<unsigned char>, std::vector<unsigned char> > KeyValPair;
+    bool Salvage(std::string strFile, bool fAggressive, std::vector<KeyValPair>& vResult);
+
     bool Open(boost::filesystem::path pathEnv_);
     void Close();
     void Flush(bool fShutdown);
@@ -57,6 +79,7 @@ public:
     bool GetDetach() { return fDetachDB; }
 
     void CloseDb(const std::string& strFile);
+    bool RemoveDb(const std::string& strFile);
 
     DbTxn *TxnBegin(int flags=DB_TXN_WRITE_NOSYNC)
     {
@@ -99,7 +122,7 @@ protected:
         CDataStream ssKey(SER_DISK, CLIENT_VERSION);
         ssKey.reserve(1000);
         ssKey << key;
-        Dbt datKey(&ssKey[0], ssKey.size());
+        Dbt datKey(&ssKey[0], (uint32_t)ssKey.size());
 
         // Read
         Dbt datValue;
@@ -115,6 +138,7 @@ protected:
             ssValue >> value;
         }
         catch (std::exception &e) {
+            (void)e;
             return false;
         }
 
@@ -136,13 +160,13 @@ protected:
         CDataStream ssKey(SER_DISK, CLIENT_VERSION);
         ssKey.reserve(1000);
         ssKey << key;
-        Dbt datKey(&ssKey[0], ssKey.size());
+        Dbt datKey(&ssKey[0], (uint32_t)ssKey.size());
 
         // Value
         CDataStream ssValue(SER_DISK, CLIENT_VERSION);
         ssValue.reserve(10000);
         ssValue << value;
-        Dbt datValue(&ssValue[0], ssValue.size());
+        Dbt datValue(&ssValue[0], (uint32_t)ssValue.size());
 
         // Write
         int ret = pdb->put(activeTxn, &datKey, &datValue, (fOverwrite ? 0 : DB_NOOVERWRITE));
@@ -165,7 +189,7 @@ protected:
         CDataStream ssKey(SER_DISK, CLIENT_VERSION);
         ssKey.reserve(1000);
         ssKey << key;
-        Dbt datKey(&ssKey[0], ssKey.size());
+        Dbt datKey(&ssKey[0], (uint32_t)ssKey.size());
 
         // Erase
         int ret = pdb->del(activeTxn, &datKey, 0);
@@ -185,7 +209,7 @@ protected:
         CDataStream ssKey(SER_DISK, CLIENT_VERSION);
         ssKey.reserve(1000);
         ssKey << key;
-        Dbt datKey(&ssKey[0], ssKey.size());
+        Dbt datKey(&ssKey[0], (uint32_t)ssKey.size());
 
         // Exists
         int ret = pdb->exists(activeTxn, &datKey, 0);
@@ -213,13 +237,13 @@ protected:
         if (fFlags == DB_SET || fFlags == DB_SET_RANGE || fFlags == DB_GET_BOTH || fFlags == DB_GET_BOTH_RANGE)
         {
             datKey.set_data(&ssKey[0]);
-            datKey.set_size(ssKey.size());
+            datKey.set_size((uint32_t)ssKey.size());
         }
         Dbt datValue;
         if (fFlags == DB_GET_BOTH || fFlags == DB_GET_BOTH_RANGE)
         {
             datValue.set_data(&ssValue[0]);
-            datValue.set_size(ssValue.size());
+            datValue.set_size((uint32_t)ssValue.size());
         }
         datKey.set_flags(DB_DBT_MALLOC);
         datValue.set_flags(DB_DBT_MALLOC);
@@ -288,42 +312,6 @@ public:
 
     bool static Rewrite(const std::string& strFile, const char* pszSkip = NULL);
 };
-
-
-
-
-
-
-
-/** Access to the transaction database (blkindex.dat) */
-class CTxDB : public CDB
-{
-public:
-    CTxDB(const char* pszMode="r+") : CDB("blkindex.dat", pszMode) { }
-private:
-    CTxDB(const CTxDB&);
-    void operator=(const CTxDB&);
-public:
-    bool ReadTxIndex(uint256 hash, CTxIndex& txindex);
-    bool UpdateTxIndex(uint256 hash, const CTxIndex& txindex);
-    bool AddTxIndex(const CTransaction& tx, const CDiskTxPos& pos, int nHeight);
-    bool EraseTxIndex(const CTransaction& tx);
-    bool ContainsTx(uint256 hash);
-    bool ReadDiskTx(uint256 hash, CTransaction& tx, CTxIndex& txindex);
-    bool ReadDiskTx(uint256 hash, CTransaction& tx);
-    bool ReadDiskTx(COutPoint outpoint, CTransaction& tx, CTxIndex& txindex);
-    bool ReadDiskTx(COutPoint outpoint, CTransaction& tx);
-    bool WriteBlockIndex(const CDiskBlockIndex& blockindex);
-    bool ReadHashBestChain(uint256& hashBestChain);
-    bool WriteHashBestChain(uint256 hashBestChain);
-    bool ReadBestInvalidWork(CBigNum& bnBestInvalidWork);
-    bool WriteBestInvalidWork(CBigNum bnBestInvalidWork);
-    bool LoadBlockIndex();
-private:
-    bool LoadBlockIndexGuts();
-};
-
-
 
 
 /** Access to the (IP) address database (peers.dat) */
